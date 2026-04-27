@@ -12,14 +12,19 @@ DEFAULT_BASE_URL = "https://api.mavedb.org/api/v1"
 
 
 class MaveDBClient:
-    """Small synchronous client for public MaveDB API resources."""
+    """Small synchronous client for MaveDB API resources."""
 
-    def __init__(self, base_url: str = DEFAULT_BASE_URL, token: str | None = None, timeout: float = 30.0):
+    def __init__(
+        self,
+        base_url: str = DEFAULT_BASE_URL,
+        api_key: str | None = None,
+        timeout: float = 30.0,
+    ):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.headers: dict[str, str] = {}
-        if token:
-            self.headers["Authorization"] = f"Bearer {token}"
+        if api_key:
+            self.headers["X-API-key"] = api_key
 
     def get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:
         response = httpx.get(

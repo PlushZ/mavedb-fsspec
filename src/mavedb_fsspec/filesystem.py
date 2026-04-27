@@ -21,12 +21,12 @@ class MaveDBFileSystem(AbstractFileSystem):
         self,
         *args: Any,
         base_url: str = DEFAULT_BASE_URL,
-        token: str | None = None,
+        api_key: str | None = None,
         timeout: float = 30.0,
         **kwargs: Any,
     ):
         super().__init__(*args, **kwargs)
-        self.client = MaveDBClient(base_url=base_url, token=token, timeout=timeout)
+        self.client = MaveDBClient(base_url=base_url, api_key=api_key, timeout=timeout)
 
     def ls(self, path: str, detail: bool = True, **kwargs: Any) -> list[Any]:
         normalized = self._normalize_path(path)
@@ -78,16 +78,18 @@ class MaveDBFileSystem(AbstractFileSystem):
         urn = parts[1]
         filename = parts[2]
         endpoint = self._endpoint_for_score_set_file(urn, filename)
-        return self.client.get_bytes(endpoint)
+        data = self.client.get_bytes(endpoint)
+        if filename.endswith(".json"):
+            return self._escape_html_like_json_content(data)
+        return data
 
     def _score_set_entries(self, path: str) -> list[dict[str, Any]]:
         parts = path.split("/")
         if len(parts) == 2:
-            return [
-                self._file_info(f"{path}/{filename}")
-                for filename in self._score_set_files()
-                if self._score_set_file_exists(parts[1], filename)
-            ]
+            entries = [self._file_info(f"{path}/{filename}") for filename in self._core_score_set_files()]
+            if self._score_set_file_exists(parts[1], "mapped-variants.json"):
+                entries.append(self._file_info(f"{path}/mapped-variants.json"))
+            return entries
         if len(parts) == 3 and parts[2] in self._score_set_files():
             return [self._file_info(path)]
         raise FileNotFoundError(path)
@@ -108,6 +110,9 @@ class MaveDBFileSystem(AbstractFileSystem):
     def _score_set_files(self) -> tuple[str, ...]:
         return ("scores.csv", "counts.csv", "variants.csv", "metadata.json", "mapped-variants.json")
 
+    def _core_score_set_files(self) -> tuple[str, ...]:
+        return ("scores.csv", "counts.csv", "variants.csv", "metadata.json")
+
     def _score_set_file_exists(self, urn: str, filename: str) -> bool:
         return self.client.exists(self._endpoint_for_score_set_file(urn, filename))
 
@@ -115,8 +120,12 @@ class MaveDBFileSystem(AbstractFileSystem):
         stripped = self._strip_protocol(path)
         return stripped.strip("/")
 
+    @staticmethod
+    def _escape_html_like_json_content(data: bytes) -> bytes:
+        return data.replace(b"<", b"\\u003c").replace(b">", b"\\u003e")
+
     def _directory_info(self, name: str) -> dict[str, Any]:
         return {"name": name, "type": "directory", "size": 0}
 
     def _file_info(self, name: str) -> dict[str, Any]:
-        return {"name": name, "type": "file", "size": None}
+        return {"name": name, "type": "file", "size": 0}
