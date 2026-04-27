@@ -33,9 +33,16 @@ class MaveDBFileSystem(AbstractFileSystem):
 
         if normalized in {"", "/"}:
             entries = [self._directory_info("score-sets")]
-        elif normalized == "score-sets":
-            entries = []
-        elif normalized.startswith("score-sets/"):
+            if self.client.has_api_key:
+                entries.append(self._directory_info("my-score-sets"))
+        elif normalized in self._score_set_collection_names():
+            entries, _ = self.list_score_sets(
+                collection=normalized,
+                limit=kwargs.get("limit"),
+                offset=kwargs.get("offset", 0),
+                query=kwargs.get("query"),
+            )
+        elif self._is_score_set_collection_path(normalized):
             entries = self._score_set_entries(normalized)
         else:
             raise FileNotFoundError(path)
@@ -49,9 +56,11 @@ class MaveDBFileSystem(AbstractFileSystem):
 
         if normalized in {"", "/"}:
             return self._directory_info("")
-        if normalized == "score-sets":
-            return self._directory_info("score-sets")
-        if normalized.startswith("score-sets/"):
+        if normalized in self._score_set_collection_names():
+            if normalized == "my-score-sets" and not self.client.has_api_key:
+                raise PermissionError("An API key is required to list my-score-sets.")
+            return self._directory_info(normalized)
+        if self._is_score_set_collection_path(normalized):
             parts = normalized.split("/")
             if len(parts) == 2:
                 return self._directory_info(normalized)
@@ -72,7 +81,7 @@ class MaveDBFileSystem(AbstractFileSystem):
     def _read_score_set_file(self, path: str) -> bytes:
         normalized = self._normalize_path(path)
         parts = normalized.split("/")
-        if len(parts) != 3 or parts[0] != "score-sets":
+        if len(parts) != 3 or parts[0] not in self._score_set_collection_names():
             raise MaveDBPathError(f"Unsupported MaveDB path: {path}")
 
         urn = parts[1]
@@ -82,6 +91,82 @@ class MaveDBFileSystem(AbstractFileSystem):
         if filename.endswith(".json"):
             return self._escape_html_like_json_content(data)
         return data
+
+    def list_score_sets(
+        self,
+        collection: str = "score-sets",
+        limit: int | None = None,
+        offset: int | None = 0,
+        query: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        collection = self._normalize_collection(collection)
+        if collection == "my-score-sets" and not self.client.has_api_key:
+            raise PermissionError("An API key is required to list my-score-sets.")
+
+        score_sets, total_count = self._search_score_sets(
+            collection=collection,
+            limit=min(limit or 100, 100),
+            offset=offset or 0,
+            query=query,
+        )
+        return self._score_sets_to_entries(score_sets, collection), total_count
+
+    def _search_score_sets(
+        self,
+        collection: str,
+        limit: int,
+        offset: int,
+        query: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        payload: dict[str, Any] = {
+            "limit": limit,
+            "offset": offset,
+            "include_experiment_score_set_urns_and_count": False,
+        }
+        if query:
+            payload["text"] = query
+
+        response = self.client.post_json(self._search_endpoint(collection), payload)
+        score_sets = response.get("scoreSets", response.get("score_sets", []))
+        total_count = int(response.get("numScoreSets", response.get("num_score_sets", len(score_sets))))
+        return score_sets, total_count
+
+    def _score_sets_to_entries(self, score_sets: list[dict[str, Any]], collection: str) -> list[dict[str, Any]]:
+        entries = []
+        for score_set in score_sets:
+            urn = score_set["urn"]
+            info = self._directory_info(f"{collection}/{urn}")
+            title = self._score_set_display_title(score_set)
+            if title:
+                info["display_name"] = f"{title} ({urn})"
+            entries.append(info)
+        return entries
+
+    @staticmethod
+    def _score_set_display_title(score_set: dict[str, Any]) -> str | None:
+        experiment = score_set.get("experiment")
+        if isinstance(experiment, dict) and experiment.get("title"):
+            return str(experiment["title"])
+        if score_set.get("title"):
+            return str(score_set["title"])
+        return None
+
+    def _search_endpoint(self, collection: str) -> str:
+        if collection == "my-score-sets":
+            return "me/score-sets/search"
+        return "score-sets/search"
+
+    def _normalize_collection(self, collection: str) -> str:
+        normalized = self._normalize_path(collection)
+        if normalized not in self._score_set_collection_names():
+            raise FileNotFoundError(collection)
+        return normalized
+
+    def _score_set_collection_names(self) -> tuple[str, ...]:
+        return ("score-sets", "my-score-sets")
+
+    def _is_score_set_collection_path(self, path: str) -> bool:
+        return any(path.startswith(f"{collection}/") for collection in self._score_set_collection_names())
 
     def _score_set_entries(self, path: str) -> list[dict[str, Any]]:
         parts = path.split("/")

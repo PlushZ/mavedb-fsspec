@@ -25,16 +25,7 @@ class MaveDBClient:
         self.headers: dict[str, str] = {}
         if api_key:
             self.headers["X-API-key"] = api_key
-
-    def get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        response = httpx.get(
-            self._url(path),
-            params=params,
-            headers=self.headers,
-            timeout=self.timeout,
-        )
-        self._raise_for_status(response)
-        return response.json()
+        self.has_api_key = bool(api_key)
 
     def get_bytes(self, path: str, params: dict[str, Any] | None = None) -> bytes:
         response = httpx.get(
@@ -45,6 +36,16 @@ class MaveDBClient:
         )
         self._raise_for_status(response)
         return response.content
+
+    def post_json(self, path: str, json: dict[str, Any] | None = None) -> Any:
+        response = httpx.post(
+            self._url(path),
+            json=json,
+            headers=self.headers,
+            timeout=self.timeout,
+        )
+        self._raise_for_status(response)
+        return response.json()
 
     def exists(self, path: str, params: dict[str, Any] | None = None) -> bool:
         response = httpx.head(
