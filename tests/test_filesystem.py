@@ -1,3 +1,5 @@
+import pytest
+
 from mavedb_fsspec import MaveDBFileSystem
 from mavedb_fsspec.client import MaveDBClient
 
@@ -171,12 +173,8 @@ def test_my_score_sets_listing_uses_authenticated_search_endpoint():
 def test_my_score_sets_listing_requires_api_key():
     fs = MaveDBFileSystem(base_url="https://example.test/api/v1")
 
-    try:
+    with pytest.raises(PermissionError, match="API key"):
         fs.list_score_sets(collection="my-score-sets", limit=25, offset=0)
-    except PermissionError as exc:
-        assert "API key" in str(exc)
-    else:
-        raise AssertionError("Expected PermissionError")
 
 
 def test_my_score_set_file_listing_uses_my_score_sets_paths():

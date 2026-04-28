@@ -16,6 +16,9 @@ class MaveDBFileSystem(AbstractFileSystem):
 
     protocol = "mavedb"
     root_marker = ""
+    score_set_collections = ("score-sets", "my-score-sets")
+    score_set_files = ("scores.csv", "counts.csv", "variants.csv", "metadata.json", "mapped-variants.json")
+    core_score_set_files = ("scores.csv", "counts.csv", "variants.csv", "metadata.json")
 
     def __init__(
         self,
@@ -35,7 +38,7 @@ class MaveDBFileSystem(AbstractFileSystem):
             entries = [self._directory_info("score-sets")]
             if self.client.has_api_key:
                 entries.append(self._directory_info("my-score-sets"))
-        elif normalized in self._score_set_collection_names():
+        elif normalized in self.score_set_collections:
             entries, _ = self.list_score_sets(
                 collection=normalized,
                 limit=kwargs.get("limit"),
@@ -56,7 +59,7 @@ class MaveDBFileSystem(AbstractFileSystem):
 
         if normalized in {"", "/"}:
             return self._directory_info("")
-        if normalized in self._score_set_collection_names():
+        if normalized in self.score_set_collections:
             if normalized == "my-score-sets" and not self.client.has_api_key:
                 raise PermissionError("An API key is required to list my-score-sets.")
             return self._directory_info(normalized)
@@ -64,7 +67,7 @@ class MaveDBFileSystem(AbstractFileSystem):
             parts = normalized.split("/")
             if len(parts) == 2:
                 return self._directory_info(normalized)
-            if len(parts) == 3 and parts[2] in self._score_set_files():
+            if len(parts) == 3 and parts[2] in self.score_set_files:
                 return self._file_info(normalized)
 
         raise FileNotFoundError(path)
@@ -81,7 +84,7 @@ class MaveDBFileSystem(AbstractFileSystem):
     def _read_score_set_file(self, path: str) -> bytes:
         normalized = self._normalize_path(path)
         parts = normalized.split("/")
-        if len(parts) != 3 or parts[0] not in self._score_set_collection_names():
+        if len(parts) != 3 or parts[0] not in self.score_set_collections:
             raise MaveDBPathError(f"Unsupported MaveDB path: {path}")
 
         urn = parts[1]
@@ -158,24 +161,21 @@ class MaveDBFileSystem(AbstractFileSystem):
 
     def _normalize_collection(self, collection: str) -> str:
         normalized = self._normalize_path(collection)
-        if normalized not in self._score_set_collection_names():
+        if normalized not in self.score_set_collections:
             raise FileNotFoundError(collection)
         return normalized
 
-    def _score_set_collection_names(self) -> tuple[str, ...]:
-        return ("score-sets", "my-score-sets")
-
     def _is_score_set_collection_path(self, path: str) -> bool:
-        return any(path.startswith(f"{collection}/") for collection in self._score_set_collection_names())
+        return any(path.startswith(f"{collection}/") for collection in self.score_set_collections)
 
     def _score_set_entries(self, path: str) -> list[dict[str, Any]]:
         parts = path.split("/")
         if len(parts) == 2:
-            entries = [self._file_info(f"{path}/{filename}") for filename in self._core_score_set_files()]
+            entries = [self._file_info(f"{path}/{filename}") for filename in self.core_score_set_files]
             if self._score_set_file_exists(parts[1], "mapped-variants.json"):
                 entries.append(self._file_info(f"{path}/mapped-variants.json"))
             return entries
-        if len(parts) == 3 and parts[2] in self._score_set_files():
+        if len(parts) == 3 and parts[2] in self.score_set_files:
             return [self._file_info(path)]
         raise FileNotFoundError(path)
 
@@ -191,12 +191,6 @@ class MaveDBFileSystem(AbstractFileSystem):
             return endpoints[filename]
         except KeyError as exc:
             raise FileNotFoundError(filename) from exc
-
-    def _score_set_files(self) -> tuple[str, ...]:
-        return ("scores.csv", "counts.csv", "variants.csv", "metadata.json", "mapped-variants.json")
-
-    def _core_score_set_files(self) -> tuple[str, ...]:
-        return ("scores.csv", "counts.csv", "variants.csv", "metadata.json")
 
     def _score_set_file_exists(self, urn: str, filename: str) -> bool:
         return self.client.exists(self._endpoint_for_score_set_file(urn, filename))
