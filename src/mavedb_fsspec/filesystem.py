@@ -16,9 +16,11 @@ class MaveDBFileSystem(AbstractFileSystem):
 
     protocol = "mavedb"
     root_marker = ""
+    cachable = False
     score_set_collections = ("score-sets", "my-score-sets")
-    score_set_files = ("scores.csv", "counts.csv", "variants.csv", "metadata.json", "mapped-variants.json")
+    score_set_files = frozenset(("scores.csv", "counts.csv", "variants.csv", "metadata.json", "mapped-variants.json"))
     core_score_set_files = ("scores.csv", "counts.csv", "variants.csv", "metadata.json")
+    unknown_size = -1
 
     def __init__(
         self,
@@ -30,8 +32,15 @@ class MaveDBFileSystem(AbstractFileSystem):
     ):
         super().__init__(*args, **kwargs)
         self.client = MaveDBClient(base_url=base_url, api_key=api_key, timeout=timeout)
+        self._size_cache: dict[str, int] = {}
 
     def ls(self, path: str, detail: bool = True, **kwargs: Any) -> list[Any]:
+        """List MaveDB paths.
+
+        For score-set collection paths, optional ``limit``, ``offset``, and ``query`` keyword arguments are
+        accepted for convenience. Call ``list_score_sets()`` directly when pagination metadata, including the total
+        count, is needed.
+        """
         normalized = self._normalize_path(path)
 
         if normalized in {"", "/"}:
@@ -81,6 +90,12 @@ class MaveDBFileSystem(AbstractFileSystem):
             raise NotImplementedError("MaveDBFileSystem is read-only.")
         return BytesIO(self._read_score_set_file(path))
 
+    def close(self) -> None:
+        self.client.close()
+        close = getattr(super(), "close", None)
+        if close is not None:
+            close()
+
     def _read_score_set_file(self, path: str) -> bytes:
         normalized = self._normalize_path(path)
         parts = normalized.split("/")
@@ -90,9 +105,11 @@ class MaveDBFileSystem(AbstractFileSystem):
         urn = parts[1]
         filename = parts[2]
         endpoint = self._endpoint_for_score_set_file(urn, filename)
-        data = self.client.get_bytes(endpoint)
+        response = self.client.get(endpoint)
+        data = response.content
         if filename.endswith(".json"):
-            return self._escape_html_like_json_content(data)
+            data = self._escape_html_like_json_content(data)
+        self._cache_size(normalized, data, response.headers.get("Content-Length"))
         return data
 
     def list_score_sets(
@@ -102,6 +119,7 @@ class MaveDBFileSystem(AbstractFileSystem):
         offset: int | None = 0,
         query: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
+        """List score sets with API-backed pagination and search."""
         collection = self._normalize_collection(collection)
         if collection == "my-score-sets" and not self.client.has_api_key:
             raise PermissionError("An API key is required to list my-score-sets.")
@@ -171,9 +189,11 @@ class MaveDBFileSystem(AbstractFileSystem):
     def _score_set_entries(self, path: str) -> list[dict[str, Any]]:
         parts = path.split("/")
         if len(parts) == 2:
-            entries = [self._file_info(f"{path}/{filename}") for filename in self.core_score_set_files]
+            entries = [
+                self._file_info(f"{path}/{filename}", resolve_size=False) for filename in self.core_score_set_files
+            ]
             if self._score_set_file_exists(parts[1], "mapped-variants.json"):
-                entries.append(self._file_info(f"{path}/mapped-variants.json"))
+                entries.append(self._file_info(f"{path}/mapped-variants.json", resolve_size=False))
             return entries
         if len(parts) == 3 and parts[2] in self.score_set_files:
             return [self._file_info(path)]
@@ -201,10 +221,49 @@ class MaveDBFileSystem(AbstractFileSystem):
 
     @staticmethod
     def _escape_html_like_json_content(data: bytes) -> bytes:
-        return data.replace(b"<", b"\\u003c").replace(b">", b"\\u003e")
+        return data.replace(b"&", b"\\u0026").replace(b"<", b"\\u003c").replace(b">", b"\\u003e")
 
     def _directory_info(self, name: str) -> dict[str, Any]:
         return {"name": name, "type": "directory", "size": 0}
 
-    def _file_info(self, name: str) -> dict[str, Any]:
-        return {"name": name, "type": "file", "size": 0}
+    def _file_info(self, name: str, resolve_size: bool = True) -> dict[str, Any]:
+        return {"name": name, "type": "file", "size": self._file_size(name) if resolve_size else self.unknown_size}
+
+    def _file_size(self, name: str) -> int:
+        if name in self._size_cache:
+            return self._size_cache[name]
+
+        filename = name.rsplit("/", 1)[-1]
+        if not filename.endswith(".json"):
+            return self.unknown_size
+
+        parts = name.split("/")
+        if len(parts) != 3:
+            return self.unknown_size
+
+        endpoint = self._endpoint_for_score_set_file(parts[1], filename)
+        try:
+            response = self.client.head(endpoint)
+        except Exception:
+            return self.unknown_size
+
+        size = self._content_length(response.headers.get("Content-Length"))
+        if size is not None:
+            self._size_cache[name] = size
+            return size
+        return self.unknown_size
+
+    def _cache_size(self, name: str, data: bytes, content_length: str | None) -> None:
+        size = self._content_length(content_length)
+        if size is None or size != len(data):
+            size = len(data)
+        self._size_cache[name] = size
+
+    @staticmethod
+    def _content_length(value: str | None) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except ValueError:
+            return None
