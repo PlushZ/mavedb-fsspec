@@ -7,11 +7,12 @@ name = "mavedb-fsspec"
 version = "0.1.0"
 description = "fsspec filesystem adapter for accessing MaveDB score set data through the MaveDB API."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [
     { name = "Polina Polunina" },
 ]
+keywords = ["fsspec", "mavedb", "variants", "filesystem", "galaxy"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
@@ -23,6 +24,11 @@ dependencies = [
     "fsspec>=2024.0.0",
     "httpx>=0.26.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/PlushZ/mavedb-fsspec"
+Repository = "https://github.com/PlushZ/mavedb-fsspec"
+Issues = "https://github.com/PlushZ/mavedb-fsspec/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -42,3 +48,6 @@ testpaths = ["tests"]
 [tool.ruff]
 target-version = "py311"
 line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

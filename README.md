@@ -1,6 +1,6 @@
 # mavedb-fsspec
 
-`mavedb-fsspec` is a read-only [fsspec](https://filesystem-spec.readthedocs.io/) filesystem adapter for MaveDB.
+`mavedb-fsspec` is a read-only [fsspec](https://filesystem-spec.readthedocs.io/) filesystem adapter for [MaveDB](https://mavedb.org/).
 It exposes MaveDB score set data as filesystem-like paths so Python tools that understand fsspec can browse and read MaveDB data without using MaveDB API endpoints directly.
 
 ## What is fsspec?
@@ -107,6 +107,9 @@ with fsspec.open("mavedb://score-sets/urn:mavedb:00000670-a-1/metadata.json", "r
     metadata = handle.read()
 ```
 
+Files are currently downloaded completely into memory when opened. Similarly, `cat_file()` downloads the complete
+file before applying `start` and `end` slicing; these operations do not issue HTTP range requests.
+
 ## Configuration
 
 The public MaveDB API is used by default:
@@ -144,4 +147,8 @@ python -m ruff check .
 
 This filesystem is read-only. It does not upload data to MaveDB.
 
-The JSON files returned by this adapter escape literal `<` and `>` characters. This keeps JSON safe for consumers that reject HTML-like content during upload, while preserving equivalent JSON string values.
+File information uses `-1` when the size is unknown. MaveDB endpoints can return `405 Method Not Allowed` for
+`HEAD` requests, so a size may remain unknown until the file has been read.
+
+The JSON files returned by this adapter escape literal `<`, `>`, and `&` characters. This keeps JSON safe for
+consumers that reject HTML-like content during upload, while preserving equivalent JSON string values.

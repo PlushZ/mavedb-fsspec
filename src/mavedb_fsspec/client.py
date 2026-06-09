@@ -26,49 +26,56 @@ class MaveDBClient:
         if api_key:
             self.headers["X-API-key"] = api_key
         self.has_api_key = bool(api_key)
+        self._session = httpx.Client(
+            base_url=f"{self.base_url}/",
+            headers=self.headers,
+            timeout=self.timeout,
+        )
+
+    def close(self) -> None:
+        self._session.close()
+
+    def __enter__(self) -> MaveDBClient:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def get(self, path: str, params: dict[str, Any] | None = None) -> httpx.Response:
+        response = self._session.get(path.lstrip("/"), params=params)
+        self._raise_for_status(response)
+        return response
+
+    def head(self, path: str, params: dict[str, Any] | None = None) -> httpx.Response:
+        response = self._session.head(path.lstrip("/"), params=params)
+        self._raise_for_status(response)
+        return response
 
     def get_bytes(self, path: str, params: dict[str, Any] | None = None) -> bytes:
-        response = httpx.get(
-            self._url(path),
-            params=params,
-            headers=self.headers,
-            timeout=self.timeout,
-        )
-        self._raise_for_status(response)
-        return response.content
+        return self.get(path, params=params).content
 
     def post_json(self, path: str, json: dict[str, Any] | None = None) -> Any:
-        response = httpx.post(
-            self._url(path),
-            json=json,
-            headers=self.headers,
-            timeout=self.timeout,
-        )
+        response = self._session.post(path.lstrip("/"), json=json)
         self._raise_for_status(response)
         return response.json()
 
     def exists(self, path: str, params: dict[str, Any] | None = None) -> bool:
-        response = httpx.head(
-            self._url(path),
-            params=params,
-            headers=self.headers,
-            timeout=self.timeout,
-        )
-        if response.status_code == 405:
-            response = httpx.get(
-                self._url(path),
-                params=params,
-                headers=self.headers,
-                timeout=self.timeout,
-            )
         try:
+            response = self._session.head(path.lstrip("/"), params=params)
+            if response.status_code == 405:
+                with self._session.stream("GET", path.lstrip("/"), params=params) as stream_response:
+                    self._raise_for_status(stream_response)
+                    return True
             self._raise_for_status(response)
         except FileNotFoundError:
             return False
         return True
-
-    def _url(self, path: str) -> str:
-        return f"{self.base_url}/{path.lstrip('/')}"
 
     def _raise_for_status(self, response: httpx.Response) -> None:
         try:
