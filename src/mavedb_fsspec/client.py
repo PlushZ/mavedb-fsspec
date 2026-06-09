@@ -77,9 +77,6 @@ class MaveDBClient:
             return False
         return True
 
-    def _url(self, path: str) -> str:
-        return f"{self.base_url}/{path.lstrip('/')}"
-
     def _raise_for_status(self, response: httpx.Response) -> None:
         try:
             response.raise_for_status()
