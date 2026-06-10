@@ -17,29 +17,19 @@ instead of manually constructing API requests.
 
 ## Installation
 
-For local development from this repository:
+Install from PyPI:
 
 ```bash
-python -m pip install -e .
+pip install mavedb-fsspec
 ```
 
-To include development tools:
+Or with uv:
 
 ```bash
-python -m pip install -e ".[dev]"
+uv add mavedb-fsspec
 ```
 
-Once the package is published, it can be installed with:
-
-```bash
-python -m pip install mavedb-fsspec
-```
-
-`fsspec` is installed automatically as a package dependency. If you only need fsspec itself for another project, install it with:
-
-```bash
-python -m pip install fsspec
-```
+`fsspec` and the other runtime dependencies are installed automatically.
 
 ## Filesystem layout
 
@@ -81,6 +71,15 @@ print(fs.ls("mavedb://score-sets", detail=False, limit=25, offset=0))
 
 data = fs.cat("mavedb://score-sets/urn:mavedb:00000670-a-1/scores.csv")
 print(data[:500].decode())
+```
+
+The filesystem class can also be instantiated directly:
+
+```python
+from mavedb_fsspec import MaveDBFileSystem
+
+fs = MaveDBFileSystem()
+print(fs.ls("score-sets", detail=False, limit=25))
 ```
 
 ## Authenticated usage
@@ -131,6 +130,12 @@ fs = fsspec.filesystem(
 
 ## Development
 
+Install this repository in editable mode with the development dependencies:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
 Run tests with:
 
 ```bash
@@ -152,3 +157,7 @@ File information uses `-1` when the size is unknown. MaveDB endpoints can return
 
 The JSON files returned by this adapter escape literal `<`, `>`, and `&` characters. This keeps JSON safe for
 consumers that reject HTML-like content during upload, while preserving equivalent JSON string values.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
